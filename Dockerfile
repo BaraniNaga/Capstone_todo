@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # 5) Install Python deps
-COPY requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements
 RUN pip install --upgrade pip && pip install -r requirements
 
 # 6) Copy project
