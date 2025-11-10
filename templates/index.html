@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}To-Do{% endblock %}
+
+{% block content %}
+  <!-- Create / Edit form -->
+  <section class="card grid gap-10" id="formCard">
+    <h3 id="formTitle" class="m-0">Add Task</h3>
+    <form id="todoForm" class="grid gap-10">
+      <input id="title" class="input" placeholder="Task title *" required />
+      <textarea id="description" class="textarea" placeholder="Description (optional)"></textarea>
+      <label class="row space-between">
+        <span class="badge">Completed?</span>
+        <input id="completed" type="checkbox" />
+      </label>
+      <div class="row end">
+        <button type="button" id="cancelBtn" class="button ghost" style="display:none">Cancel</button>
+        <button class="button primary" type="submit">Save</button>
+      </div>
+      <input type="hidden" id="editingId" />
+    </form>
+  </section>
+
+  <hr class="hr" />
+
+  <!-- Toolbar -->
+  <section class="card">
+    <div class="row space-between wrap gap-12">
+      <div class="row gap-8" role="group" aria-label="Filters">
+        <button class="button ghost" data-filter="all">All</button>
+        <button class="button ghost" data-filter="open">Open</button>
+        <button class="button ghost" data-filter="done">Done</button>
+      </div>
+      <input id="search" class="input" placeholder="Search..." style="min-width:220px;" />
+    </div>
+  </section>
+
+  <div style="height:12px;"></div>
+
+  <section id="status" class="card" style="display:none;"></section>
+  <section id="list" class="list"></section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ===== API calls (same-origin to /tasks) =====
+async function api(path, options={}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options
+  });
+  if (!res.ok) {
+    let msg;
+    try { msg = (await res.json()).detail || res.statusText; }
+    catch { msg = await res.text(); }
+    throw new Error(msg || res.statusText);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+const Tasks = {
+  list: () => api("/tasks/"),
+  create: (payload) => api("/tasks/", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id, payload) => api(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  remove: (id) => api(`/tasks/${id}`, { method: "DELETE" }),
+};
+
+// ===== Helpers & state =====
+const $ = s => document.querySelector(s);
+function fmt(dt) { try { return new Date(dt).toLocaleString(); } catch { return dt; } }
+function setStatus(text, isError=false) {
+  const el = $("#status");
+  el.textContent = text;
+  el.style.display = text ? "block" : "none";
+  el.style.borderColor = isError ? "#8b1f1f" : "var(--line)";
+  el.style.background = isError ? "#2b1414" : "var(--panel)";
+}
+
+let tasks = [];
+let filter = "all"; // all | open | done
+let query = "";
+
+function filtered() {
+  let x = [...tasks];
+  if (filter === "open") x = x.filter(t => !t.completed);
+  if (filter === "done") x = x.filter(t => t.completed);
+  if (query.trim()) {
+    const q = query.toLowerCase();
+    x = x.filter(t => t.title.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q));
+  }
+  x.sort((a,b)=> new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  return x;
+}
+
+// ===== Render =====
+function render() {
+  const list = $("#list");
+  const data = filtered();
+  list.innerHTML = "";
+  if (!data.length) {
+    const empty = document.createElement("div");
+    empty.className = "card";
+    empty.textContent = "No tasks yet. Add one above!";
+    list.appendChild(empty);
+    return;
+  }
+  for (const t of data) {
+    const row = document.createElement("div"); row.className = "item";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = t.completed;
+    cb.addEventListener("change", async () => {
+      try { await Tasks.update(t.id, { completed: !t.completed }); await load(); }
+      catch (e) { setStatus(e.message, true); }
+    });
+    row.appendChild(cb);
+
+    const main = document.createElement("div");
+    const h4 = document.createElement("h4"); h4.textContent = t.title;
+    if (t.completed) h4.style.textDecoration = "line-through";
+    main.appendChild(h4);
+
+    if (t.description) {
+      const d = document.createElement("div"); d.style.color="#b9c8e6"; d.textContent=t.description; main.appendChild(d);
+    }
+
+    const meta = document.createElement("div"); meta.className="row gap-8 mt-6";
+    meta.innerHTML = `
+      <span class="badge">Created ${fmt(t.created_at)}</span>
+      <span class="badge">Updated ${fmt(t.updated_at)}</span>
+      <span class="badge">${t.completed ? "Done" : "Open"}</span>`;
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    const actions = document.createElement("div"); actions.className = "row";
+    const editBtn = document.createElement("button"); editBtn.className="button ghost"; editBtn.textContent="Edit";
+    editBtn.addEventListener("click", ()=> startEdit(t));
+    const delBtn = document.createElement("button"); delBtn.className="button danger"; delBtn.textContent="Delete";
+    delBtn.addEventListener("click", async ()=> {
+      if (!confirm(`Delete "${t.title}"?`)) return;
+      try { await Tasks.remove(t.id); await load(); } catch (e) { setStatus(e.message, true); }
+    });
+    actions.append(editBtn, delBtn);
+    row.appendChild(actions);
+
+    list.appendChild(row);
+  }
+}
+
+// ===== Load =====
+async function load() {
+  try { setStatus("Loading…"); tasks = await Tasks.list(); setStatus(""); render(); }
+  catch (e) { setStatus(e.message || "Failed to load tasks", true); }
+}
+
+// ===== Form logic =====
+function resetForm() {
+  $("#editingId").value = "";
+  $("#formTitle").textContent = "Add Task";
+  $("#title").value = "";
+  $("#description").value = "";
+  $("#completed").checked = false;
+  $("#cancelBtn").style.display = "none";
+}
+function startEdit(t) {
+  $("#editingId").value = String(t.id);
+  $("#formTitle").textContent = "Edit Task";
+  $("#title").value = t.title;
+  $("#description").value = t.description || "";
+  $("#completed").checked = !!t.completed;
+  $("#cancelBtn").style.display = "inline-block";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+$("#todoForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = $("#editingId").value;
+  const payload = {
+    title: $("#title").value.trim(),
+    description: $("#description").value.trim() || undefined,
+    completed: $("#completed").checked
+  };
+  if (!payload.title) { setStatus("Title is required", true); return; }
+  try {
+    if (id) await Tasks.update(Number(id), payload);
+    else await Tasks.create(payload);
+    resetForm(); await load();
+  } catch (e) { setStatus(e.message, true); }
+});
+$("#cancelBtn").addEventListener("click", resetForm);
+
+// Filters & search
+document.querySelectorAll("[data-filter]").forEach(btn => {
+  btn.addEventListener("click", (e)=> { filter = e.target.getAttribute("data-filter"); render(); });
+});
+$("#search").addEventListener("input", (e)=> { query = e.target.value; render(); });
+
+// Init
+load();
+</script>
+{% endblock %}

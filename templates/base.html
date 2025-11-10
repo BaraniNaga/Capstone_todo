@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{% block title %}To-Do (FastAPI){% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="container">
+    <header class="row space-between mb-16">
+      <h2 class="m-0"> To-Do </h2>
+      <!-- <span class="kbd">API: /tasks</span> -->
+    </header>
+
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
